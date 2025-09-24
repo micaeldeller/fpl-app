@@ -62,12 +62,14 @@ transfer_budget = st.sidebar.number_input("Money available (£m)", min_value=0.0
 # ---------- Current team selection ----------
 st.subheader("Pick Your Current Team (15 players)")
 with st.expander("Select players"):
-    # Interactive table with checkboxes
+    available_cols = [c for c in ["web_name", "team", "position", cost_col, "expected"] if c in stats.columns]
     edited = st.data_editor(
-        stats[["web_name", "team", "position", cost_col, "expected"]],
+        stats[available_cols],
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
+    )
+
         column_config={
             "web_name": st.column_config.TextColumn("Player"),
             "team": st.column_config.TextColumn("Team"),
