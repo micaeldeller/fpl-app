@@ -58,27 +58,38 @@ transfer_budget = st.sidebar.number_input("Money available (£m)", min_value=0.0
 # ---------- Current team selection ----------
 st.subheader("Pick Your Current Team (15 players)")
 with st.expander("Select players"):
+    # Define desired columns
     desired_cols = ["web_name", "team", "position", cost_col, "expected"]
     available_cols = [c for c in desired_cols if c in stats.columns]
 
+    # Build column_config dynamically
+    column_config = {}
+    disabled_cols = []
+    for c in available_cols:
+        if c == "web_name":
+            column_config[c] = st.column_config.TextColumn("Player")
+        elif c == "team":
+            column_config[c] = st.column_config.TextColumn("Team")
+            disabled_cols.append(c)
+        elif c == "position":
+            column_config[c] = st.column_config.TextColumn("Pos")
+            disabled_cols.append(c)
+        elif c == cost_col:
+            column_config[c] = st.column_config.NumberColumn("Cost (£m)", format="%.1f")
+            disabled_cols.append(c)
+        elif c == "expected":
+            column_config[c] = st.column_config.NumberColumn("Exp. Pts", format="%.2f")
+            disabled_cols.append(c)
+
+    # Display data_editor safely
     edited = st.data_editor(
         stats[available_cols],
+        column_config=column_config,
+        disabled=disabled_cols,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
     )
-
-current_team = st.multiselect(
-    "Choose your current 15 players by name",
-    options=stats["web_name"].tolist(),
-)
-
-if len(current_team) != 15:
-    st.warning("Please select exactly 15 players to continue.")
-    st.stop()
-
-current = stats[stats["web_name"].isin(current_team)].copy()
-current_cost = current[cost_col].sum()
 
 # ---------- Optimizer ----------
 if st.button("Suggest Transfers"):
