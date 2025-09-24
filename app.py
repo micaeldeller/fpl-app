@@ -70,7 +70,7 @@ with st.expander("Select players"):
         hide_index=True,
     )
 
-        column_config={
+    column_config={
             "web_name": st.column_config.TextColumn("Player"),
             "team": st.column_config.TextColumn("Team"),
             "position": st.column_config.TextColumn("Pos"),
