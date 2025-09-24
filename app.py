@@ -77,7 +77,7 @@ with st.expander("Select players"):
             cost_col: st.column_config.NumberColumn("Cost (£m)", format="%.1f"),
             "expected": st.column_config.NumberColumn("Exp. Pts", format="%.2f"),
         },
-        disabled=[cost_col, "expected", "position", "team"],
+    disabled=[cost_col, "expected", "position", "team"],
     )
 
 # Tick selection → current team
