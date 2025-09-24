@@ -78,7 +78,6 @@ with st.expander("Select players"):
             "expected": st.column_config.NumberColumn("Exp. Pts", format="%.2f"),
         },
     disabled=[cost_col, "expected", "position", "team"],
-    )
 
 # Tick selection → current team
 if "selected_rows" in edited:
