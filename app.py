@@ -7,14 +7,10 @@ st.set_page_config(layout="wide", page_title="FPL Transfer Planner")
 
 # ---------- Helpers ----------
 def normalize_cost(df, cost_col="now_cost"):
-    """Convert cost to float (£m) if stored as tenths of millions."""
     if cost_col not in df.columns:
         return df, None
     median = df[cost_col].median()
-    if median > 100:  # already in £m
-        df["cost_float"] = df[cost_col]
-    else:  # stored in tenths
-        df["cost_float"] = df[cost_col] / 10.0
+    df["cost_float"] = df[cost_col] / 10.0 if median < 100 else df[cost_col]
     return df, "cost_float"
 
 def position_map(code):
@@ -32,13 +28,13 @@ if not stats_file or not fixtures_file:
 stats = pd.read_csv(stats_file)
 fixtures = pd.read_csv(fixtures_file)
 
-# Detect cost column
+# ---------- Detect cost column ----------
 stats, cost_col = normalize_cost(stats, "now_cost")
 if cost_col is None:
     st.error("No valid cost column found in stats CSV.")
     st.stop()
 
-# Add expected points column
+# ---------- Add expected points ----------
 if "points_per_game" in stats.columns:
     stats["expected"] = stats["points_per_game"].astype(float)
 elif "total_points" in stats.columns:
@@ -46,8 +42,8 @@ elif "total_points" in stats.columns:
 else:
     stats["expected"] = np.random.rand(len(stats))  # fallback random
 
-# Map element_type → position (GK/DEF/MID/FWD)
-if "element_type" in stats.columns:
+# ---------- Map positions ----------
+if "position" not in stats.columns and "element_type" in stats.columns:
     stats["position"] = stats["element_type"].apply(position_map)
 elif "position" not in stats.columns:
     st.error("No position information available (need element_type or position column).")
@@ -62,7 +58,9 @@ transfer_budget = st.sidebar.number_input("Money available (£m)", min_value=0.0
 # ---------- Current team selection ----------
 st.subheader("Pick Your Current Team (15 players)")
 with st.expander("Select players"):
-    available_cols = [c for c in ["web_name", "team", "position", cost_col, "expected"] if c in stats.columns]
+    desired_cols = ["web_name", "team", "position", cost_col, "expected"]
+    available_cols = [c for c in desired_cols if c in stats.columns]
+
     edited = st.data_editor(
         stats[available_cols],
         num_rows="dynamic",
@@ -70,18 +68,6 @@ with st.expander("Select players"):
         hide_index=True,
     )
 
-    column_config={
-            "web_name": st.column_config.TextColumn("Player"),
-            "team": st.column_config.TextColumn("Team"),
-            "position": st.column_config.TextColumn("Pos"),
-            cost_col: st.column_config.NumberColumn("Cost (£m)", format="%.1f"),
-            "expected": st.column_config.NumberColumn("Exp. Pts", format="%.2f"),
-        },
-    disabled=[cost_col, "expected", "position", "team"],
-
-# Tick selection → current team
-if "selected_rows" in edited:
-    st.info("Note: new Streamlit versions allow row selection directly. For now, pick manually.")
 current_team = st.multiselect(
     "Choose your current 15 players by name",
     options=stats["web_name"].tolist(),
@@ -107,7 +93,6 @@ if st.button("Suggest Transfers"):
     model += lpSum([players[i][cost_col] * x[i] for i in x]) <= current_cost + transfer_budget
     model += lpSum([x[i] for i in x]) == 15
 
-    # Position constraints (basic FPL rules)
     model += lpSum([x[i] for i in x if players[i].get("position") == "GK"]) == 2
     model += lpSum([x[i] for i in x if players[i].get("position") == "DEF"]) >= 5
     model += lpSum([x[i] for i in x if players[i].get("position") == "MID"]) >= 5
@@ -117,46 +102,37 @@ if st.button("Suggest Transfers"):
     selected_idx = [i for i in x if x[i].value() == 1.0]
     new_team = pd.DataFrame([players[i] for i in selected_idx])
 
-    # Compare with current team
+    # ---------- Safe display ----------
+    def safe_cols(df, cols):
+        return [c for c in cols if c in df.columns]
+
+    st.subheader("Suggested New Team")
+    st.dataframe(new_team[safe_cols(new_team, desired_cols)])
+
+    # Transfers
     transfers_out = current[~current["web_name"].isin(new_team["web_name"])]
     transfers_in = new_team[~new_team["web_name"].isin(current["web_name"])]
-
-    # Transfer count check
-    if len(transfers_in) > max_transfers:
-        st.warning(
-            f"Optimizer suggested {len(transfers_in)} transfers, "
-            f"but you only allowed {max_transfers}."
-        )
-
-    # ---------- Show results ----------
-    st.subheader("Suggested New Team")
-    st.dataframe(new_team[["web_name", "team", "position", cost_col, "expected"]])
 
     st.subheader("Transfers")
     col1, col2 = st.columns(2)
     with col1:
         st.write("**Transfers OUT**")
-        st.dataframe(transfers_out[["web_name", "position", cost_col]])
+        st.dataframe(transfers_out[safe_cols(transfers_out, ["web_name", "position", cost_col])])
     with col2:
         st.write("**Transfers IN**")
-        st.dataframe(transfers_in[["web_name", "position", cost_col, "expected"]])
+        st.dataframe(transfers_in[safe_cols(transfers_in, ["web_name", "position", cost_col, "expected"])])
 
-    # ---------- Formation view ----------
+    # Formation
     st.subheader("Formation View")
-    formation = {
-        "GK": new_team[new_team["position"] == "GK"],
-        "DEF": new_team[new_team["position"] == "DEF"],
-        "MID": new_team[new_team["position"] == "MID"],
-        "FWD": new_team[new_team["position"] == "FWD"],
-    }
+    formation = {pos: new_team[new_team["position"] == pos] for pos in ["GK", "DEF", "MID", "FWD"]}
 
-    # pick XI and bench
+    # Bench selection
     bench = pd.concat([
         formation["GK"].iloc[1:2],
         formation["DEF"].iloc[4:5],
         formation["MID"].iloc[4:5],
         formation["FWD"].iloc[2:3],
-    ])
+    ], ignore_index=True)
 
     st.markdown("### Starting XI")
     for pos in ["GK", "DEF", "MID", "FWD"]:
